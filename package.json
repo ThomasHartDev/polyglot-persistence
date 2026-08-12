@@ -1,0 +1,17 @@
+{
+  "name": "polyglot-persistence",
+  "version": "0.1.0",
+  "description": "One domain modeled across relational, document, key-value, wide-column, distributed SQL, and graph stores. A reference for when to reach for which database.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
