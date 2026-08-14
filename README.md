@@ -4,7 +4,7 @@ One domain, many stores: the same activity feed modeled on relational, document,
 
 ## What this demonstrates
 
-Polyglot persistence is the idea that one product rarely has one ideal database. A follow graph wants adjacency lookups, a home timeline wants a clustered time key, and a unique handle wants a relational constraint. This repo keeps one domain and one `ActivityStore` port, then implements that port on each paradigm so query shape, consistency, and scaling stay comparable. The first backend is in-memory fan-in-on-read: per-author timelines merged into a home feed. Later backends (Postgres, Redis, MongoDB, Cassandra, CockroachDB, Neo4j) keep the same interface and the same contract tests.
+Polyglot persistence is the idea that one product rarely has one ideal database. A follow graph wants adjacency lookups, a home timeline wants a clustered time key, and a unique handle wants a relational constraint. This repo keeps one domain and one `ActivityStore` port, then implements that port on each paradigm so query shape, consistency, and scaling stay comparable. The in-memory backend is fan-in on read: per-author timelines merged into a home feed. The Postgres backend is the same port over a 3NF schema, composite B-tree indexes, and keyset SQL. Later backends (Redis, MongoDB, Cassandra, CockroachDB, Neo4j) keep the same interface and the same contract tests.
 
 ## Concepts demonstrated
 
@@ -16,18 +16,27 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Compound cursor pagination over a total order `(createdAt DESC, id DESC)`
 - Unique constraints on user id and handle
 - Directed follow graph with idempotent edges and live (not snapshot) feeds
+- Third normal form: users, a composite follow edge, posts
+- Composite B-tree indexes `(author_id, created_at DESC, id DESC)` for a newest-first timeline
+- Keyset pagination with a row comparison `(created_at, id) < cursor`
+- Join-based fan-in: home feed is `posts INNER JOIN follows`
+- Table-level `CHECK` (no self-follow) and `UNIQUE` (handle) as the source of integrity
+- Query planner: `EXPLAIN` should pick `posts_author_timeline_idx` for the feed
 
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
 - Activity-feed domain, `ActivityStore` port, in-memory backend, and a shared contract suite
+- Relational backend (Postgres): schema, indexes, the SQL queries for the domain
 
 ## Usage
 
 ```ts
-import { MemoryStore } from 'polyglot-persistence'
+import { PGlite } from '@electric-sql/pglite'
+import { PostgresStore } from 'polyglot-persistence'
 
-const store = new MemoryStore()
+const db = new PGlite()
+const store = await PostgresStore.create(db)
 
 await store.createUser({ id: 'ada', handle: 'ada' })
 await store.createUser({ id: 'bob', handle: 'bob' })
@@ -42,7 +51,7 @@ const page = await store.feed('ada', { limit: 20 })
 const next = await store.feed('ada', { limit: 20, before: post })
 ```
 
-A new backend implements `ActivityStore` and calls `defineStoreContract(name, factory)` from `test/contract.ts`. If the contract is green, the store matches the domain.
+`PostgresStore` takes any `{ query(sql, params) }` client (PGlite in tests, `pg` against a server). A new backend implements `ActivityStore` and calls `defineStoreContract(name, factory)` from `test/contract.ts`.
 
 ## Running the tests
 
