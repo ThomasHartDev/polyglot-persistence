@@ -157,25 +157,31 @@ export class PostgresStore implements ActivityStore {
 
   async postsByAuthor(authorId: UserId, page?: Page): Promise<Post[]> {
     const id = await this.requireUser(authorId)
-    const [at, cursorId] = cursorParams(page)
-    const { rows } = await this.sql.query<PostRow>(SQL.authorTimeline, [
-      id,
-      at,
-      cursorId,
-      pageLimit(page),
-    ])
+    const limit = pageLimit(page)
+    const before = page?.before
+    const { rows } = before
+      ? await this.sql.query<PostRow>(SQL.authorTimelineBefore, [
+          id,
+          before.createdAt,
+          before.id,
+          limit,
+        ])
+      : await this.sql.query<PostRow>(SQL.authorTimeline, [id, limit])
     return rows.map(toPost)
   }
 
   async feed(userId: UserId, page?: Page): Promise<Post[]> {
     const id = await this.requireUser(userId)
-    const [at, cursorId] = cursorParams(page)
-    const { rows } = await this.sql.query<PostRow>(SQL.feed, [
-      id,
-      at,
-      cursorId,
-      pageLimit(page),
-    ])
+    const limit = pageLimit(page)
+    const before = page?.before
+    const { rows } = before
+      ? await this.sql.query<PostRow>(SQL.feedBefore, [
+          id,
+          before.createdAt,
+          before.id,
+          limit,
+        ])
+      : await this.sql.query<PostRow>(SQL.feed, [id, limit])
     return rows.map(toPost)
   }
 
@@ -186,12 +192,6 @@ export class PostgresStore implements ActivityStore {
     if (!rows[0]) throw new StoreError('user_not_found')
     return key
   }
-}
-
-function cursorParams(page?: Page): [number | null, string | null] {
-  const before = page?.before
-  if (!before) return [null, null]
-  return [before.createdAt, before.id]
 }
 
 function epoch(value: string | number): number {

@@ -18,10 +18,10 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Directed follow graph with idempotent edges and live (not snapshot) feeds
 - Third normal form: users, a composite follow edge, posts
 - Composite B-tree indexes `(author_id, created_at DESC, id DESC)` for a newest-first timeline
-- Keyset pagination with a row comparison `(created_at, id) < cursor`
-- Join-based fan-in: home feed is `posts INNER JOIN follows`
+- Keyset pagination with a row comparison `(created_at, id) < cursor` (first page and keyed page are separate statements)
+- Fan-in via `CROSS JOIN LATERAL`: each followee's newest-N posts walk `posts_author_timeline_idx`, then the outer query merges
 - Table-level `CHECK` (no self-follow) and `UNIQUE` (handle) as the source of integrity
-- Query planner: `EXPLAIN` should pick `posts_author_timeline_idx` for the feed
+- Query planner: after `ANALYZE`, `EXPLAIN` on the author timeline is `Index Scan using posts_author_timeline_idx` with no Sort. The lateral feed uses that same scan per followee.
 
 ## What's implemented
 
@@ -32,11 +32,9 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 ## Usage
 
 ```ts
-import { PGlite } from '@electric-sql/pglite'
-import { PostgresStore } from 'polyglot-persistence'
+import { MemoryStore } from 'polyglot-persistence'
 
-const db = new PGlite()
-const store = await PostgresStore.create(db)
+const store = new MemoryStore()
 
 await store.createUser({ id: 'ada', handle: 'ada' })
 await store.createUser({ id: 'bob', handle: 'bob' })
@@ -51,7 +49,7 @@ const page = await store.feed('ada', { limit: 20 })
 const next = await store.feed('ada', { limit: 20, before: post })
 ```
 
-`PostgresStore` takes any `{ query(sql, params) }` client (PGlite in tests, `pg` against a server). A new backend implements `ActivityStore` and calls `defineStoreContract(name, factory)` from `test/contract.ts`.
+`PostgresStore` takes any `{ query(sql, params) }` client. Tests drive it with PGlite (`@electric-sql/pglite` is a devDependency, not a runtime dep). A server `pg` Pool works the same way. A new backend implements `ActivityStore` and calls `defineStoreContract(name, factory)` from `test/contract.ts`.
 
 ## Running the tests
 

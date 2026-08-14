@@ -62,13 +62,13 @@ describe('postgres schema and planner', () => {
         ('p2', 'bob', 'newer-id', 10),
         ('p3', 'bob', 'earlier', 4)`,
     )
-    const first = await db.query<{ id: string }>(SQL.feed, ['ada', null, null, 1])
+    const first = await db.query<{ id: string }>(SQL.feed, ['ada', 1])
     expect(first.rows.map((row) => row.id)).toEqual(['p2'])
-    const second = await db.query<{ id: string }>(SQL.feed, ['ada', 10, 'p2', 2])
+    const second = await db.query<{ id: string }>(SQL.feedBefore, ['ada', 10, 'p2', 2])
     expect(second.rows.map((row) => row.id)).toEqual(['p1', 'p3'])
   })
 
-  it('uses the author timeline index for the feed join when seq scans are off', async () => {
+  it('walks posts_author_timeline_idx as an index-ordered scan after ANALYZE', async () => {
     await db.query('TRUNCATE TABLE users CASCADE')
     await db.query(
       `INSERT INTO users (id, handle, created_at) VALUES ('ada', 'ada', 1), ('bob', 'bob', 1)`,
@@ -76,15 +76,28 @@ describe('postgres schema and planner', () => {
     await db.query(`INSERT INTO follows (follower_id, followee_id) VALUES ('ada', 'bob')`)
     await db.query(
       `INSERT INTO posts (id, author_id, body, created_at)
-       SELECT 'p' || g, 'bob', 'body', g FROM generate_series(1, 40) AS g`,
+       SELECT 'p' || g, 'bob', 'body', g FROM generate_series(1, 500) AS g`,
     )
-    await db.query('SET enable_seqscan = off')
-    const { rows } = await db.query<{ 'QUERY PLAN': string }>(
-      `EXPLAIN ${SQL.feed}`,
-      ['ada', null, null, 20],
-    )
-    await db.query('SET enable_seqscan = on')
-    const plan = rows.map((row) => row['QUERY PLAN']).join('\n')
-    expect(plan).toMatch(/posts_author_timeline_idx/)
+    await db.query('ANALYZE')
+
+    const timeline = await explain(SQL.authorTimeline, ['bob', 20])
+    expect(timeline).toContain('Index Scan using posts_author_timeline_idx')
+    expect(timeline).not.toContain('Bitmap Index Scan')
+    expect(timeline).not.toMatch(/\bSort\b/)
+
+    const keyed = await explain(SQL.authorTimelineBefore, ['bob', 250, 'p250', 20])
+    expect(keyed).toContain('Index Scan using posts_author_timeline_idx')
+    expect(keyed).toContain('Index Cond:')
+    expect(keyed).not.toContain('Bitmap Index Scan')
+    expect(keyed).not.toMatch(/\bSort\b/)
+
+    const feed = await explain(SQL.feed, ['ada', 20])
+    expect(feed).toContain('Index Scan using posts_author_timeline_idx')
+    expect(feed).not.toContain('Bitmap Index Scan')
   })
 })
+
+async function explain(sql: string, params: unknown[]): Promise<string> {
+  const { rows } = await db.query<{ 'QUERY PLAN': string }>(`EXPLAIN ${sql}`, params)
+  return rows.map((row) => row['QUERY PLAN']).join('\n')
+}

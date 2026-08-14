@@ -43,14 +43,37 @@ export const SQL = {
   authorTimeline: `SELECT id, author_id, body, created_at
     FROM posts
     WHERE author_id = $1
-      AND ($2::bigint IS NULL OR (created_at, id) < ($2::bigint, $3::text))
+    ORDER BY created_at DESC, id DESC
+    LIMIT $2`,
+  authorTimelineBefore: `SELECT id, author_id, body, created_at
+    FROM posts
+    WHERE author_id = $1
+      AND (created_at, id) < ($2::bigint, $3::text)
     ORDER BY created_at DESC, id DESC
     LIMIT $4`,
   feed: `SELECT p.id, p.author_id, p.body, p.created_at
-    FROM posts p
-    INNER JOIN follows f ON f.followee_id = p.author_id
+    FROM follows f
+    CROSS JOIN LATERAL (
+      SELECT p.id, p.author_id, p.body, p.created_at
+      FROM posts p
+      WHERE p.author_id = f.followee_id
+      ORDER BY p.created_at DESC, p.id DESC
+      LIMIT $2
+    ) p
     WHERE f.follower_id = $1
-      AND ($2::bigint IS NULL OR (p.created_at, p.id) < ($2::bigint, $3::text))
+    ORDER BY p.created_at DESC, p.id DESC
+    LIMIT $2`,
+  feedBefore: `SELECT p.id, p.author_id, p.body, p.created_at
+    FROM follows f
+    CROSS JOIN LATERAL (
+      SELECT p.id, p.author_id, p.body, p.created_at
+      FROM posts p
+      WHERE p.author_id = f.followee_id
+        AND (p.created_at, p.id) < ($2::bigint, $3::text)
+      ORDER BY p.created_at DESC, p.id DESC
+      LIMIT $4
+    ) p
+    WHERE f.follower_id = $1
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT $4`,
 } as const
