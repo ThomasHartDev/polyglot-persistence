@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.5
+        version: 0.5.5
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -16,6 +19,9 @@ importers:
         version: 2.1.9
 
 packages:
+
+  '@electric-sql/pglite@0.5.5':
+    resolution: {integrity: sha512-QeZ+oB7QaU4EJj2awrB8hwFZ5TXxLRBQ9Gfq0dQauYDdWsRtuWRCERgtri35vRfL07KQHlVlc/4Qxvn7a5AXeA==}
 
   '@esbuild/aix-ppc64@0.21.5':
     resolution: {integrity: sha512-1SDgH6ZSPTlggy1yI6+Dbkiz8xzpHJEVAlF/AM1tHPLsf5STom9rwtjE4hKAF20FfXXNTFqEYXyJNWh1GiZedQ==}
@@ -520,6 +526,8 @@ packages:
     hasBin: true
 
 snapshots:
+
+  '@electric-sql/pglite@0.5.5': {}
 
   '@esbuild/aix-ppc64@0.21.5':
     optional: true
