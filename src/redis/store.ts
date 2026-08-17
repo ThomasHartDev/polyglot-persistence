@@ -166,7 +166,7 @@ export class RedisStore implements ActivityStore {
 
   private async hydrate(authorId: UserId, postId: PostId): Promise<Post | null> {
     const post = readPost(await this.redis.hgetall(kPost(postId)))
-    if (post) return post
+    if (post && post.authorId === authorId) return post
     await this.redis.zrem(kTimeline(authorId), postId)
     return null
   }

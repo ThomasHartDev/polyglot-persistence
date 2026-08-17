@@ -92,4 +92,23 @@ describe('redis data structures and expiry', () => {
     expect(await store.expirePost('missing', 50)).toBe(false)
     expect(await store.expirePost('p1', 0)).toBe(false)
   })
+
+  it('does not leak a reused post id onto another author timeline', async () => {
+    const clock = { now: 1_000 }
+    const redis = new MemoryRedis(() => clock.now)
+    const store = RedisStore.attach(redis)
+    await store.createUser({ id: 'ada', handle: 'ada' }, 1)
+    await store.createUser({ id: 'bob', handle: 'bob' }, 1)
+    await store.createUser({ id: 'cam', handle: 'cam' }, 1)
+    await store.follow('cam', 'bob')
+    await store.publish({ id: 'p1', authorId: 'bob', body: 'first' }, 5)
+    await store.expirePost('p1', 10)
+    clock.now = 1_020
+
+    const reused = await store.publish({ id: 'p1', authorId: 'ada', body: 'second' }, 9)
+    expect(await store.postsByAuthor('bob')).toEqual([])
+    expect(await store.postsByAuthor('ada')).toEqual([reused])
+    expect(await store.feed('cam')).toEqual([])
+    expect(await redis.zcard('tl:bob')).toBe(0)
+  })
 })
