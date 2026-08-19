@@ -27,6 +27,11 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Per-key TTL (`PEXPIRE`) versus a relational `PRIMARY KEY`: the hash can vanish, the ZSET member lingers until the next read `ZREM`s it, and the id is reusable
 - No foreign keys and no `CHECK`: self-follow and existence are enforced in the store, not the engine
 
+- Embedding vs referencing: `following[]` lives on the user document; posts and inbound follow edges are their own collections
+- 16 MiB BSON document limit: unbounded posts are never nested under the author
+- Dual-write follow: `$addToSet` / `$pull` on embedded `following[]` for the feed `$in` path; unique `{ followerId, followeeId }` edges answer `followers()`
+- Unique index on `handle` (`E11000` / code 11000)
+- Compound keyset via `$or` (`createdAt $lt`, or same `createdAt` and `_id $lt`); feed is `posts.find({ authorId: { $in: following } })`. Empty `$in` matches nothing.
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
@@ -34,6 +39,12 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Relational backend (Postgres): schema, indexes, the SQL queries for the domain
 - Key-value backend (Redis): data structures + expiry, the tradeoffs vs relational
 
+- Embedding vs referencing: `following[]` lives on the user document; posts and inbound follow edges are their own collections
+- 16 MiB BSON document limit: unbounded posts are never nested under the author
+- Dual-write follow: `$addToSet` / `$pull` on embedded `following[]` for the feed `$in` path; unique `{ followerId, followeeId }` edges answer `followers()`
+- Unique index on `handle` (`E11000` / code 11000)
+- Compound keyset via `$or` (`createdAt $lt`, or same `createdAt` and `_id $lt`); feed is `posts.find({ authorId: { $in: following } })`. Empty `$in` matches nothing.
+- Document backend (MongoDB): document shape, embedding vs referencing
 ## Usage
 
 ```ts
