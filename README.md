@@ -29,7 +29,7 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 
 - Embedding vs referencing: `following[]` lives on the user document; posts and inbound follow edges are their own collections
 - 16 MiB BSON document limit: unbounded posts are never nested under the author
-- Dual-write follow: `$addToSet` / `$pull` on embedded `following[]` for the feed `$in` path; unique `{ followerId, followeeId }` edges answer `followers()`
+- Dual-write follow: `$addToSet` / `$pull` on embedded `following[]` for the feed `$in` path; unique `{ followerId, followeeId }` edges answer `followers()`. `isFollowing()` reads the edge; `following()` and `feed()` read the embed. A missed embed is repaired on the next follow; until then the two sources can disagree.
 - Unique index on `handle` (`E11000` / code 11000)
 - Compound keyset via `$or` (`createdAt $lt`, or same `createdAt` and `_id $lt`); feed is `posts.find({ authorId: { $in: following } })`. Empty `$in` matches nothing.
 ## What's implemented

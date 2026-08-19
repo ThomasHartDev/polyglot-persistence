@@ -14,7 +14,7 @@ import {
   type UserId,
 } from '../domain'
 import type { ActivityStore, CreateUserInput, PublishInput } from '../store'
-import { DuplicateKeyError, type Filter, type MongoCollection, type MongoDb } from './memory'
+import { type Filter, type MongoCollection, type MongoDb } from './memory'
 
 export { DuplicateKeyError, MemoryMongo } from './memory'
 export type { MongoCollection, MongoDb } from './memory'
@@ -113,7 +113,7 @@ export class MongoStore implements ActivityStore {
     try {
       await this.follows.insertOne({ _id: `${from}\x1f${to}`, followerId: from, followeeId: to })
     } catch (err) {
-      if (!(err instanceof DuplicateKeyError)) throw err
+      if (!isDuplicateKey(err)) throw err
     }
     // Dual-write: following[] is the feed $in path; follows is inbound reverse lookup.
     await this.users.updateOne({ _id: from }, { $addToSet: { following: to } })
@@ -199,9 +199,19 @@ function toPost(doc: PostDoc): Post {
   return { id: doc._id, authorId: doc.authorId, body: doc.body, createdAt: doc.createdAt }
 }
 
+function isDuplicateKey(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && (err as { code: unknown }).code === 11000
+}
+
+function keyPatternOf(err: unknown): Record<string, unknown> {
+  if (typeof err !== 'object' || err === null || !('keyPattern' in err)) return {}
+  const value = (err as { keyPattern: unknown }).keyPattern
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+}
+
 function throwMapped(err: unknown, kind: 'user' | 'post'): never {
-  if (err instanceof DuplicateKeyError) {
-    if (kind === 'user' && 'handle' in err.keyPattern) throw new StoreError('handle_taken')
+  if (isDuplicateKey(err)) {
+    if (kind === 'user' && 'handle' in keyPatternOf(err)) throw new StoreError('handle_taken')
     throw new StoreError(kind === 'user' ? 'user_exists' : 'post_exists')
   }
   throw err

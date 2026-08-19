@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { StoreError } from '../src/domain'
 import { DuplicateKeyError, MemoryMongo } from '../src/mongo/memory'
 import {
   INDEXES,
@@ -50,6 +51,33 @@ describe('mongo document shape', () => {
     expect(await store.isFollowing('ada', 'bob')).toBe(true)
   })
 
+  it('maps a driver-shaped E11000 handle collision to handle_taken', async () => {
+    const db = new MemoryMongo()
+    const store = await MongoStore.create(db)
+    db.collection<UserDoc>('users').insertOne = async () => {
+      throw { code: 11000, keyPattern: { handle: 1 } }
+    }
+    await expect(store.createUser({ id: 'ada', handle: 'ada' }, 1)).rejects.toMatchObject({
+      constructor: StoreError,
+      code: 'handle_taken',
+    })
+  })
+
+  it('treats a driver-shaped E11000 follow as idempotent and repairs the embed', async () => {
+    const db = new MemoryMongo()
+    const store = await MongoStore.create(db)
+    await store.createUser({ id: 'ada', handle: 'ada' }, 1)
+    await store.createUser({ id: 'bob', handle: 'bob' }, 1)
+    const follows = db.collection<FollowDoc>('follows')
+    await follows.insertOne({ _id: 'ada\x1fbob', followerId: 'ada', followeeId: 'bob' })
+    follows.insertOne = async () => {
+      throw { code: 11000 }
+    }
+    await expect(store.follow('ada', 'bob')).resolves.toBeUndefined()
+    expect(await store.following('ada')).toEqual(['bob'])
+    expect(await store.isFollowing('ada', 'bob')).toBe(true)
+  })
+
   it('rejects a duplicate handle at the unique index (E11000)', async () => {
     const db = new MemoryMongo()
     await MongoStore.migrate(db)
@@ -65,6 +93,20 @@ describe('mongo document shape', () => {
     expect(INDEXES.map((idx) => idx.name)).toEqual([
       'users_handle_uidx', 'posts_author_timeline_idx', 'follows_edge_uidx', 'follows_inbound_idx',
     ])
+  })
+
+  it('rejects a duplicate follow pair at follows_edge_uidx even when _id differs', async () => {
+    const db = new MemoryMongo()
+    await MongoStore.migrate(db)
+    const follows = db.collection<FollowDoc>('follows')
+    await follows.insertOne({ _id: 'e1', followerId: 'ada', followeeId: 'bob' })
+    await expect(
+      follows.insertOne({ _id: 'e2', followerId: 'ada', followeeId: 'bob' }),
+    ).rejects.toMatchObject({
+      constructor: DuplicateKeyError,
+      code: 11000,
+      keyPattern: { followerId: 1, followeeId: 1 },
+    })
   })
 
   it('pages equal timestamps with a compound $or keyset', async () => {
