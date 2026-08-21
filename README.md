@@ -32,6 +32,15 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Dual-write follow: `$addToSet` / `$pull` on embedded `following[]` for the feed `$in` path; unique `{ followerId, followeeId }` edges answer `followers()`. `isFollowing()` reads the edge; `following()` and `feed()` read the embed. A missed embed is repaired on the next follow; until then the two sources can disagree.
 - Unique index on `handle` (`E11000` / code 11000)
 - Compound keyset via `$or` (`createdAt $lt`, or same `createdAt` and `_id $lt`); feed is `posts.find({ authorId: { $in: following } })`. Empty `$in` matches nothing.
+- Query-first data modeling (Cassandra / CQL): one table per query, denormalized writes, no joins
+- Partition key as the unit of distribution and colocation (`author_id`, `follower_id`, `handle`)
+- Clustering key and `CLUSTERING ORDER BY (created_at DESC, post_id DESC)` so a partition is already a newest-first timeline
+- Primary key shape `PRIMARY KEY ((partition), clustering...)` versus a single-column `PRIMARY KEY (handle)` lookup table
+- Clustering tuple bound `(created_at, post_id) < cursor` for keyset paging inside one partition
+- Lightweight transactions (`INSERT ... IF NOT EXISTS`) for per-partition uniqueness (user id, handle, post id)
+- Dual-write compensation: a lost handle LWT deletes the `users_by_id` row; Cassandra has no cross-partition transaction
+- Fan-in as N partition reads (one `posts_by_author` partition per followee) plus a merge. An inbox table would fan out on write and snapshot follows, which would break the live-feed contract.
+
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
@@ -45,6 +54,15 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Unique index on `handle` (`E11000` / code 11000)
 - Compound keyset via `$or` (`createdAt $lt`, or same `createdAt` and `_id $lt`); feed is `posts.find({ authorId: { $in: following } })`. Empty `$in` matches nothing.
 - Document backend (MongoDB): document shape, embedding vs referencing
+- Query-first data modeling (Cassandra / CQL): one table per query, denormalized writes, no joins
+- Partition key as the unit of distribution and colocation (`author_id`, `follower_id`, `handle`)
+- Clustering key and `CLUSTERING ORDER BY (created_at DESC, post_id DESC)` so a partition is already a newest-first timeline
+- Primary key shape `PRIMARY KEY ((partition), clustering...)` versus a single-column `PRIMARY KEY (handle)` lookup table
+- Clustering tuple bound `(created_at, post_id) < cursor` for keyset paging inside one partition
+- Lightweight transactions (`INSERT ... IF NOT EXISTS`) for per-partition uniqueness (user id, handle, post id)
+- Dual-write compensation: a lost handle LWT deletes the `users_by_id` row; Cassandra has no cross-partition transaction
+- Fan-in as N partition reads (one `posts_by_author` partition per followee) plus a merge. An inbox table would fan out on write and snapshot follows, which would break the live-feed contract.
+- Wide-column backend (Cassandra): query-first modeling, partition/clustering keys
 ## Usage
 
 ```ts
