@@ -47,6 +47,11 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Ordered composite keys for prefix scans: `follows (follower_id, followee_id)` and `posts (author_id, created_at, id)` stay unhashed so `following()` and `postsByAuthor()` stay one-range
 - Secondary-index hotspots: a global `created_at` index is sequential even when the PK is a UUID, so that index is the one that gets hashed
 - SERIALIZABLE snapshot isolation: client retry on SQLSTATE `40001` (`restart transaction`)
+- Write hotspots: monotonically increasing keys (`serialKey` in this lab, packed timestamps) pin inserts to the rightmost range. The live tables use TEXT ids assigned by the caller, not SERIAL columns
+- Users keep a plain primary key because `follows` and `posts` reference `users(id)`. Hash-sharding that PK would leave a unique secondary index on `id`, which is still a sequential hotspot if ids pack
+- posts PK is hash-sharded, then the leftover unique on `posts(id)` from `ALTER PRIMARY KEY` is dropped so inserts do not keep appending to an unhashed unique
+- Secondary-index hotspots: a global `created_at` index is sequential even when the PK is hashed, so that index is the one that gets hashed
+
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
@@ -76,6 +81,11 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Secondary-index hotspots: a global `created_at` index is sequential even when the PK is a UUID, so that index is the one that gets hashed
 - SERIALIZABLE snapshot isolation: client retry on SQLSTATE `40001` (`restart transaction`)
 - Distributed SQL backend (CockroachDB): same SQL, hash-sharded point keys, ordered prefix scans, SERIALIZABLE retry
+- Write hotspots: monotonically increasing keys (`serialKey` in this lab, packed timestamps) pin inserts to the rightmost range. The live tables use TEXT ids assigned by the caller, not SERIAL columns
+- Users keep a plain primary key because `follows` and `posts` reference `users(id)`. Hash-sharding that PK would leave a unique secondary index on `id`, which is still a sequential hotspot if ids pack
+- posts PK is hash-sharded, then the leftover unique on `posts(id)` from `ALTER PRIMARY KEY` is dropped so inserts do not keep appending to an unhashed unique
+- Secondary-index hotspots: a global `created_at` index is sequential even when the PK is hashed, so that index is the one that gets hashed
+- Distributed SQL backend (CockroachDB): same SQL, hash-sharded posts PK, ordered prefix scans, SERIALIZABLE retry
 ## Usage
 
 ```ts

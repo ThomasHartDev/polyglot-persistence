@@ -49,6 +49,7 @@ export class CockroachStore implements ActivityStore {
     sql: SqlQuery,
     policy: RetryPolicy = DEFAULT_RETRY,
   ): Promise<CockroachStore> {
+    // PGlite cannot run USING HASH; a cluster calls migrate(sql, true) then attach.
     await CockroachStore.migrate(sql)
     return CockroachStore.attach(sql, policy)
   }

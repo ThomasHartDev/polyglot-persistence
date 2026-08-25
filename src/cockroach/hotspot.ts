@@ -1,7 +1,7 @@
 export type AccessShape = 'point' | 'prefix-scan' | 'monotonic-append'
 
 export const FEED_LAYOUT = {
-  usersPk: { access: 'point', sequential: true },
+  usersPk: { access: 'point', sequential: false },
   postsPk: { access: 'point', sequential: true },
   followsByFollower: { access: 'prefix-scan', sequential: false },
   postsByAuthor: { access: 'prefix-scan', sequential: false },

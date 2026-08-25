@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   CockroachStore,
   CRDB_HASH_STATEMENTS,
+  HASH_BUCKETS,
   Keyspace,
   SERIALIZATION_FAILURE,
   hashShardedIndexKey,
@@ -14,6 +15,7 @@ import {
   uuidKey,
   withSerializableRetry,
 } from '../src/cockroach/store'
+import { SCHEMA_STATEMENTS } from '../src/postgres/schema'
 import { defineStoreContract } from './contract'
 
 const db = new PGlite()
@@ -38,22 +40,28 @@ describe('cockroach key layout', () => {
     expect(shouldHashShard('point', false)).toBe(false)
     expect(shouldHashShard('prefix-scan', true)).toBe(false)
     expect(shouldHashShard('monotonic-append', false)).toBe(true)
-    expect(layoutHash('usersPk')).toBe(true)
+    expect(layoutHash('usersPk')).toBe(false)
     expect(layoutHash('postsPk')).toBe(true)
     expect(layoutHash('followsByFollower')).toBe(false)
     expect(layoutHash('postsByAuthor')).toBe(false)
     expect(layoutHash('postsByCreatedAt')).toBe(true)
   })
 
-  it('declares HASH alters for users and posts PKs and the global created_at index', () => {
+  it('hash-shards posts PK and created_at, drops the leftover unique, leaves users plain', () => {
     const sql = CRDB_HASH_STATEMENTS.join('\n')
-    expect(sql).toContain('ALTER TABLE users ALTER PRIMARY KEY')
+    expect(sql).not.toContain('ALTER TABLE users')
     expect(sql).toContain('ALTER TABLE posts ALTER PRIMARY KEY')
+    expect(sql).toMatch(/DROP INDEX IF EXISTS posts_id_key/)
     expect(sql).toContain('posts_created_at_hash_idx')
     expect(sql).not.toContain('ALTER TABLE follows')
-    for (const statement of CRDB_HASH_STATEMENTS) {
-      expect(statement).toMatch(/USING HASH WITH \(bucket_count = \d+\)/)
+    const hashed = CRDB_HASH_STATEMENTS.filter((statement) => statement.includes('USING HASH'))
+    expect(hashed.length).toBeGreaterThan(0)
+    for (const statement of hashed) {
+      expect(statement).toContain(`USING HASH WITH (bucket_count = ${HASH_BUCKETS})`)
     }
+    const layout = postsIdLayout([...SCHEMA_STATEMENTS, ...CRDB_HASH_STATEMENTS])
+    expect(layout.hashedPostsPk).toBe(true)
+    expect(layout.plainUniqueOnPostsId).toBe(false)
   })
 })
 
@@ -103,12 +111,56 @@ describe('cockroach ranges and hotspots', () => {
   })
 
   it('scatters a hashed created_at index so monotonic time does not hotspot', () => {
-    const space = new Keyspace(8)
-    const keys = Array.from({ length: 48 }, (_, i) => hashShardedIndexKey(i, `p${i}`, 8))
-    for (const key of keys) space.insert(key)
-    expect(space.rangeCount()).toBeGreaterThan(2)
-    const ranges = new Set(keys.map((key) => space.rangeIndex(key)))
-    expect(ranges.size).toBeGreaterThan(2)
+    const sequential = new Keyspace(8)
+    const seqKeys = Array.from({ length: 40 }, (_, t) => orderedIndexKey('', t, `p${t}`))
+    for (const key of seqKeys) sequential.insert(key)
+    expect(sequential.hottestShare(seqKeys.slice(-8))).toBe(1)
+
+    const hashed = new Keyspace(8)
+    const hashedKeys = Array.from({ length: 64 }, (_, t) =>
+      hashShardedIndexKey(t, `p${t}`, HASH_BUCKETS),
+    )
+    for (const key of hashedKeys) hashed.insert(key)
+    expect(hashed.hottestShare(hashedKeys.slice(-16))).toBeLessThan(0.5)
+  })
+})
+
+describe('cockroach migrate', () => {
+  it('runs schema then hash statements only when applyHashLayout is true', async () => {
+    const recorded: string[] = []
+    const sql = {
+      query: async (statement: string) => {
+        recorded.push(statement)
+        return { rows: [] }
+      },
+    }
+
+    await CockroachStore.migrate(sql, true)
+    expect(recorded.slice(0, SCHEMA_STATEMENTS.length)).toEqual([...SCHEMA_STATEMENTS])
+    expect(recorded.slice(SCHEMA_STATEMENTS.length)).toEqual([...CRDB_HASH_STATEMENTS])
+
+    recorded.length = 0
+    await CockroachStore.migrate(sql)
+    expect(recorded).toEqual([...SCHEMA_STATEMENTS])
+    expect(recorded.join('\n')).not.toContain('USING HASH')
+
+    recorded.length = 0
+    await CockroachStore.migrate(sql, false)
+    expect(recorded).toEqual([...SCHEMA_STATEMENTS])
+    expect(recorded.join('\n')).not.toContain('USING HASH')
+  })
+
+  it('create migrates without hash layout so PGlite can attach', async () => {
+    const recorded: string[] = []
+    const sql = {
+      query: async (statement: string) => {
+        recorded.push(statement)
+        return { rows: [] }
+      },
+    }
+    await CockroachStore.create(sql)
+    expect(recorded).toEqual([...SCHEMA_STATEMENTS])
+    expect(recorded.join('\n')).not.toContain('USING HASH')
   })
 })
 
@@ -154,6 +206,27 @@ describe('serializable retry', () => {
     expect(fails).toBe(0)
   })
 
+  it('backs off exponentially between 40001 retries', async () => {
+    const delays: number[] = []
+    let n = 0
+    const value = await withSerializableRetry(
+      async () => {
+        n += 1
+        if (n < 4) throw Object.assign(new Error('restart transaction'), { code: SERIALIZATION_FAILURE })
+        return 1
+      },
+      {
+        attempts: 5,
+        baseDelayMs: 10,
+        sleep: async (ms) => {
+          delays.push(ms)
+        },
+      },
+    )
+    expect(value).toBe(1)
+    expect(delays).toEqual([10, 20, 40])
+  })
+
   it('stops after the attempt budget', async () => {
     let n = 0
     await expect(
@@ -165,6 +238,33 @@ describe('serializable retry', () => {
     expect(n).toBe(3)
   })
 })
+
+function postsIdLayout(statements: readonly string[]): {
+  hashedPostsPk: boolean
+  plainUniqueOnPostsId: boolean
+} {
+  let hashedPostsPk = false
+  let plainUniqueOnPostsId = false
+  for (const raw of statements) {
+    const s = raw.replace(/\s+/g, ' ')
+    if (/CREATE TABLE IF NOT EXISTS posts /.test(s) && /PRIMARY KEY/.test(s)) {
+      if (/USING HASH/.test(s)) {
+        hashedPostsPk = true
+        plainUniqueOnPostsId = false
+      } else {
+        plainUniqueOnPostsId = true
+      }
+    }
+    if (/ALTER TABLE posts ALTER PRIMARY KEY/.test(s) && /USING HASH/.test(s)) {
+      hashedPostsPk = true
+      plainUniqueOnPostsId = true
+    }
+    if (/DROP INDEX.*posts_id_key/.test(s) || /DROP CONSTRAINT.*posts_id_key/.test(s)) {
+      plainUniqueOnPostsId = false
+    }
+  }
+  return { hashedPostsPk, plainUniqueOnPostsId }
+}
 
 function uniqueSorted(values: number[]): number[] {
   return [...new Set(values)].sort((a, b) => a - b)
