@@ -41,6 +41,12 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Dual-write compensation: a lost handle LWT deletes the `users_by_id` row; Cassandra has no cross-partition transaction
 - Fan-in as N partition reads (one `posts_by_author` partition per followee) plus a merge. An inbox table would fan out on write and snapshot follows, which would break the live-feed contract.
 
+- Distributed SQL (CockroachDB): Postgres-compatible SQL over range-partitioned keyspaces and leaseholders
+- Write hotspots: monotonically increasing PKs (`SERIAL`, packed timestamps) pin inserts to the rightmost range
+- Hash-sharded indexes (`USING HASH WITH (bucket_count = n)`, power-of-two buckets) prepend a hash bucket so point writes scatter
+- Ordered composite keys for prefix scans: `follows (follower_id, followee_id)` and `posts (author_id, created_at, id)` stay unhashed so `following()` and `postsByAuthor()` stay one-range
+- Secondary-index hotspots: a global `created_at` index is sequential even when the PK is a UUID, so that index is the one that gets hashed
+- SERIALIZABLE snapshot isolation: client retry on SQLSTATE `40001` (`restart transaction`)
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
@@ -63,6 +69,13 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Dual-write compensation: a lost handle LWT deletes the `users_by_id` row; Cassandra has no cross-partition transaction
 - Fan-in as N partition reads (one `posts_by_author` partition per followee) plus a merge. An inbox table would fan out on write and snapshot follows, which would break the live-feed contract.
 - Wide-column backend (Cassandra): query-first modeling, partition/clustering keys
+- Distributed SQL (CockroachDB): Postgres-compatible SQL over range-partitioned keyspaces and leaseholders
+- Write hotspots: monotonically increasing PKs (`SERIAL`, packed timestamps) pin inserts to the rightmost range
+- Hash-sharded indexes (`USING HASH WITH (bucket_count = n)`, power-of-two buckets) prepend a hash bucket so point writes scatter
+- Ordered composite keys for prefix scans: `follows (follower_id, followee_id)` and `posts (author_id, created_at, id)` stay unhashed so `following()` and `postsByAuthor()` stay one-range
+- Secondary-index hotspots: a global `created_at` index is sequential even when the PK is a UUID, so that index is the one that gets hashed
+- SERIALIZABLE snapshot isolation: client retry on SQLSTATE `40001` (`restart transaction`)
+- Distributed SQL backend (CockroachDB): same SQL, hash-sharded point keys, ordered prefix scans, SERIALIZABLE retry
 ## Usage
 
 ```ts
