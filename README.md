@@ -99,6 +99,7 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Common neighbors and 2-cycles (`(a)-[:FOLLOWS]->(b)-[:FOLLOWS]->(a)`) as mutual follows
 - Graph uniqueness: `CREATE CONSTRAINT ... REQUIRE n.prop IS UNIQUE` (`Neo.ClientError.Schema.ConstraintValidationFailed`). `MERGE` on `FOLLOWS` is idempotent; `CREATE` on `User`/`Post` fails the unique constraint
 - Graph backend (Neo4j): model the relationships, Cypher queries the others struggle with
+- Graph backend (Neo4j-style `MemoryGraph`): model the relationships, plus the Cypher catalog for the walks the others struggle with
 ## Usage
 
 ```ts

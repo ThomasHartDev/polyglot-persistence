@@ -33,21 +33,56 @@ describe('neo4j property graph', () => {
     expect(await store.shortestFollowPath('ada', 'bob')).toEqual(['ada', 'bob'])
     expect(await store.shortestFollowPath('dan', 'ada')).toBeNull()
     expect(await store.shortestFollowPath('ada', 'ada')).toBeNull()
-    expect(CYPHER.shortestPath).toContain('shortestPath((a)-[:FOLLOWS*..16]->(b))')
+  })
+
+  it('caps shortest FOLLOWS walks at 16 hops', async () => {
+    const store = Neo4jStore.create(new MemoryGraph())
+    const chain = Array.from({ length: 18 }, (_, i) => `u${String(i).padStart(2, '0')}`)
+    await seed(store, chain)
+    for (let i = 0; i < 17; i++) {
+      const from = chain[i]
+      const to = chain[i + 1]
+      if (from && to) await store.follow(from, to)
+    }
+    expect(await store.shortestFollowPath('u00', 'u16')).toEqual(chain.slice(0, 17))
+    expect(await store.shortestFollowPath('u00', 'u17')).toBeNull()
   })
 
   it('ranks friend-of-friend recommendations by independent 2-hop paths', async () => {
     const store = await Neo4jStore.create(new MemoryGraph())
-    await seed(store, ['ada', 'bob', 'cam', 'dan', 'eve'])
+    await seed(store, ['ada', 'bob', 'cam', 'dan', 'eve', 'fay', 'guy'])
     await store.follow('ada', 'bob')
     await store.follow('ada', 'cam')
-    await store.follow('bob', 'dan')
-    await store.follow('cam', 'dan')
+    await store.follow('ada', 'dan')
     await store.follow('bob', 'eve')
-    await store.follow('ada', 'eve')
-    expect(await store.recommendFollows('ada')).toEqual([{ id: 'dan', score: 2 }])
+    await store.follow('bob', 'fay')
+    await store.follow('cam', 'fay')
+    await store.follow('cam', 'guy')
+    await store.follow('dan', 'guy')
+    expect(await store.recommendFollows('ada')).toEqual([
+      { id: 'fay', score: 2 },
+      { id: 'guy', score: 2 },
+      { id: 'eve', score: 1 },
+    ])
     expect(await store.recommendFollows('eve')).toEqual([])
-    expect(CYPHER.recommend).toContain('NOT (u)-[:FOLLOWS]->(rec)')
+  })
+
+  it('pins the Cypher catalog that a driver would run', () => {
+    expect(CYPHER.follow).toBe(
+      'MATCH (a:User {id: $from}), (b:User {id: $to}) WHERE a <> b MERGE (a)-[:FOLLOWS]->(b)',
+    )
+    expect(CYPHER.feed).toBe(
+      'MATCH (u:User {id: $userId})-[:FOLLOWS]->(a:User)-[:AUTHORED]->(p:Post) RETURN p.id AS id, a.id AS authorId, p.body AS body, p.createdAt AS createdAt ORDER BY p.createdAt DESC, p.id DESC LIMIT $limit',
+    )
+    expect(CYPHER.feedBefore).toBe(
+      'MATCH (u:User {id: $userId})-[:FOLLOWS]->(a:User)-[:AUTHORED]->(p:Post) WHERE p.createdAt < $createdAt OR (p.createdAt = $createdAt AND p.id < $postId) RETURN p.id AS id, a.id AS authorId, p.body AS body, p.createdAt AS createdAt ORDER BY p.createdAt DESC, p.id DESC LIMIT $limit',
+    )
+    expect(CYPHER.shortestPath).toBe(
+      'MATCH (a:User {id: $from}), (b:User {id: $to}) MATCH path = shortestPath((a)-[:FOLLOWS*..16]->(b)) RETURN [n IN nodes(path) | n.id] AS ids',
+    )
+    expect(CYPHER.recommend).toBe(
+      'MATCH (u:User {id: $id})-[:FOLLOWS]->()-[:FOLLOWS]->(rec:User) WHERE rec.id <> $id AND NOT (u)-[:FOLLOWS]->(rec) RETURN rec.id AS id, count(*) AS score ORDER BY score DESC, rec.id LIMIT $limit',
+    )
   })
 
   it('matches a 2-cycle as mutual and intersection as common followees', async () => {
@@ -64,19 +99,63 @@ describe('neo4j property graph', () => {
     expect(await store.commonFollowees('ada', 'dan')).toEqual([])
   })
 
-  it('maps a driver-shaped unique constraint to handle_taken', async () => {
+  it('maps a MemoryGraph unique constraint to handle_taken', async () => {
+    const g = new MemoryGraph()
+    const store = Neo4jStore.create(g)
+    g.createNode = () => {
+      throw new ConstraintError('user_handle')
+    }
+    await expect(store.createUser({ id: 'ada', handle: 'ada' }, 1)).rejects.toMatchObject({
+      constructor: StoreError,
+      code: 'handle_taken',
+    })
+  })
+
+  it('maps a driver Neo4jError message with no constraint field to handle_taken', async () => {
     const g = new MemoryGraph()
     const store = Neo4jStore.create(g)
     g.createNode = () => {
       throw {
         code: 'Neo.ClientError.Schema.ConstraintValidationFailed',
-        constraint: 'user_handle',
+        message: "Node(123) already exists with label `User` and property `handle` = 'ada'",
       }
     }
     await expect(store.createUser({ id: 'ada', handle: 'ada' }, 1)).rejects.toMatchObject({
       constructor: StoreError,
       code: 'handle_taken',
     })
+  })
+
+  it('maps driver Neo4jError messages for User.id and Post.id', async () => {
+    const g = new MemoryGraph()
+    const store = Neo4jStore.create(g)
+    await store.createUser({ id: 'ada', handle: 'ada' }, 1)
+    g.createNode = () => {
+      throw {
+        code: 'Neo.ClientError.Schema.ConstraintValidationFailed',
+        message: "Node(1) already exists with label `User` and property `id` = 'ada'",
+      }
+    }
+    await expect(store.createUser({ id: 'ada', handle: 'other' }, 2)).rejects.toMatchObject({
+      constructor: StoreError,
+      code: 'user_exists',
+    })
+    g.createNode = () => {
+      throw {
+        code: 'Neo.ClientError.Schema.ConstraintValidationFailed',
+        message: "Node(2) already exists with label `Post` and property `id` = 'p1'",
+      }
+    }
+    await expect(store.publish({ id: 'p1', authorId: 'ada', body: 'hi' }, 3)).rejects.toMatchObject({
+      constructor: StoreError,
+      code: 'post_exists',
+    })
+  })
+
+  it('rejects a FOLLOWS self-loop at the graph even when the store is skipped', () => {
+    const g = new MemoryGraph()
+    const ada = g.createNode(['User'], { id: 'ada', handle: 'ada', createdAt: 1 })
+    expect(() => g.mergeRel(ada, 'FOLLOWS', ada)).toThrow('follows_no_self')
   })
 
   it('rejects a duplicate handle at the User.handle constraint', async () => {

@@ -14,7 +14,7 @@ export const CYPHER = {
   createUser: `CREATE (u:User {id: $id, handle: $handle, createdAt: $createdAt}) RETURN ${USER}`,
   getUser: `MATCH (u:User {id: $id}) RETURN ${USER}`,
   getUserByHandle: `MATCH (u:User {handle: $handle}) RETURN ${USER}`,
-  follow: `MATCH (a:User {id: $from}), (b:User {id: $to}) MERGE (a)-[:FOLLOWS]->(b)`,
+  follow: `MATCH (a:User {id: $from}), (b:User {id: $to}) WHERE a <> b MERGE (a)-[:FOLLOWS]->(b)`,
   unfollow: `MATCH (a:User {id: $from})-[r:FOLLOWS]->(b:User {id: $to}) DELETE r`,
   isFollowing: `MATCH (a:User {id: $from})-[r:FOLLOWS]->(b:User {id: $to}) RETURN count(r) AS n`,
   following: `MATCH (a:User {id: $id})-[:FOLLOWS]->(b:User) RETURN b.id AS id ORDER BY b.id`,

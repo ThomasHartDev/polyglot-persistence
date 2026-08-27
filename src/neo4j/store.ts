@@ -128,7 +128,7 @@ export class Neo4jStore implements ActivityStore {
     }
     return [...scores.entries()]
       .map(([id, score]) => ({ id: String(this.g.props(id)?.id), score }))
-      .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+      .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       .slice(0, pageLimit({ limit }))
   }
 
@@ -152,9 +152,7 @@ export class Neo4jStore implements ActivityStore {
 }
 
 function ids(g: MemoryGraph, nodes: string[]): UserId[] {
-  return nodes
-    .map((id) => String(g.props(id)?.id))
-    .sort((a, b) => a.localeCompare(b))
+  return nodes.map((id) => String(g.props(id)?.id)).sort()
 }
 
 function authored(g: MemoryGraph, author: string): Post[] {
@@ -191,11 +189,24 @@ function toPost(author: Props | undefined, post: Props | undefined): Post | null
 }
 
 function throwMapped(err: unknown): never {
-  const rec = typeof err === 'object' && err !== null ? (err as { code?: unknown; constraint?: unknown }) : undefined
+  const rec =
+    typeof err === 'object' && err !== null
+      ? (err as { code?: unknown; constraint?: unknown; message?: unknown })
+      : undefined
   if (rec?.code === 'Neo.ClientError.Schema.ConstraintValidationFailed') {
     if (rec.constraint === 'user_id') throw new StoreError('user_exists')
     if (rec.constraint === 'user_handle') throw new StoreError('handle_taken')
     if (rec.constraint === 'post_id') throw new StoreError('post_exists')
+    const mapped = mapDriverMessage(typeof rec.message === 'string' ? rec.message : '')
+    if (mapped) throw new StoreError(mapped)
   }
   throw err
+}
+
+function mapDriverMessage(message: string): 'user_exists' | 'handle_taken' | 'post_exists' | undefined {
+  const m = /label `(\w+)` and property `(\w+)`/.exec(message)
+  if (m?.[1] === 'User' && m[2] === 'handle') return 'handle_taken'
+  if (m?.[1] === 'User' && m[2] === 'id') return 'user_exists'
+  if (m?.[1] === 'Post' && m[2] === 'id') return 'post_exists'
+  return undefined
 }

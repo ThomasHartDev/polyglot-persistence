@@ -13,21 +13,29 @@ interface Node {
   props: Props
 }
 
-function specOf(name: string): { label: string; prop: string } {
-  if (name === 'user_handle') return { label: 'User', prop: 'handle' }
-  if (name === 'post_id') return { label: 'Post', prop: 'id' }
-  return { label: 'User', prop: 'id' }
+function specOf(cypher: string): { name: string; label: string; prop: string } | undefined {
+  const m = /CONSTRAINT\s+(\w+)\s+.*FOR\s+\(\w+:(\w+)\)\s+REQUIRE\s+\w+\.(\w+)/.exec(cypher)
+  if (!m?.[1] || !m[2] || !m[3]) return undefined
+  return { name: m[1], label: m[2], prop: m[3] }
+}
+
+interface UniqueIndex {
+  label: string
+  prop: string
+  seen: Map<string, string>
 }
 
 export class MemoryGraph {
   private readonly nodes = new Map<string, Node>()
   private readonly out = new Map<string, { type: string; to: string }[]>()
-  private readonly unique = new Map<string, Map<string, string>>()
+  private readonly unique = new Map<string, UniqueIndex>()
   private seq = 0
 
   constrain(cypher: string): void {
-    const name = cypher.split(' ')[2]
-    if (name && !this.unique.has(name)) this.unique.set(name, new Map())
+    const spec = specOf(cypher)
+    if (spec && !this.unique.has(spec.name)) {
+      this.unique.set(spec.name, { label: spec.label, prop: spec.prop, seen: new Map() })
+    }
   }
 
   nodesWithLabel(label: string): Node[] {
@@ -51,18 +59,16 @@ export class MemoryGraph {
   }
 
   createNode(labels: string[], props: Props): string {
-    for (const [name, seen] of this.unique) {
-      const spec = specOf(name)
-      if (!labels.includes(spec.label) || props[spec.prop] === undefined) continue
-      if (seen.has(String(props[spec.prop]))) throw new ConstraintError(name)
+    for (const [name, index] of this.unique) {
+      if (!labels.includes(index.label) || props[index.prop] === undefined) continue
+      if (index.seen.has(String(props[index.prop]))) throw new ConstraintError(name)
     }
     const id = `n${this.seq++}`
     this.nodes.set(id, { labels, props: { ...props } })
     this.out.set(id, [])
-    for (const [name, seen] of this.unique) {
-      const spec = specOf(name)
-      if (labels.includes(spec.label) && props[spec.prop] !== undefined) {
-        seen.set(String(props[spec.prop]), id)
+    for (const index of this.unique.values()) {
+      if (labels.includes(index.label) && props[index.prop] !== undefined) {
+        index.seen.set(String(props[index.prop]), id)
       }
     }
     return id
@@ -80,6 +86,7 @@ export class MemoryGraph {
   }
 
   mergeRel(from: string, type: string, to: string): void {
+    if (type === 'FOLLOWS' && from === to) throw new Error('follows_no_self')
     const list = this.out.get(from)
     if (!list || list.some((r) => r.type === type && r.to === to)) return
     list.push({ type, to })
