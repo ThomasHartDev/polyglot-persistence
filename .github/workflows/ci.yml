@@ -22,3 +22,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm test
+        timeout-minutes: 10

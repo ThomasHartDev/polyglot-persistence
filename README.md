@@ -62,6 +62,13 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Microbenchmark methodology: `process.hrtime.bigint()`, discarded warmup, isolated write user so publishes do not pollute reads
 - Latency percentiles (nearest-rank p50/p95/p99), mean, ops/s, and relative p50 per shape
 
+- Query planner: after `ANALYZE`, `EXPLAIN` on the author timeline is an index-ordered scan of `posts_author_timeline_idx` with no Sort. The lateral feed uses that same scan per followee.
+- Testcontainers: ephemeral Docker engines as test fixtures, same suite locally and in CI
+- Wait strategies: `pg_isready` health check plus listening-port, rather than a fixed sleep
+- Random host-port mapping so two suites can run in parallel without colliding on 5432
+- Resource reaper (Ryuk): labeled containers are dropped if the test process dies
+- Shared fixture plus `TRUNCATE CASCADE` isolation (amortize boot, empty catalog per case)
+- MVCC unique-index locks: a second session blocks on an uncommitted handle insert, then fails with `23505` after commit
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
@@ -108,6 +115,14 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Microbenchmark methodology: `process.hrtime.bigint()`, discarded warmup, isolated write user so publishes do not pollute reads
 - Latency percentiles (nearest-rank p50/p95/p99), mean, ops/s, and relative p50 per shape
 - Benchmark the domain across backends (read/write/query shapes) into a comparison table
+- Query planner: after `ANALYZE`, `EXPLAIN` on the author timeline is an index-ordered scan of `posts_author_timeline_idx` with no Sort. The lateral feed uses that same scan per followee.
+- Testcontainers: ephemeral Docker engines as test fixtures, same suite locally and in CI
+- Wait strategies: `pg_isready` health check plus listening-port, rather than a fixed sleep
+- Random host-port mapping so two suites can run in parallel without colliding on 5432
+- Resource reaper (Ryuk): labeled containers are dropped if the test process dies
+- Shared fixture plus `TRUNCATE CASCADE` isolation (amortize boot, empty catalog per case)
+- MVCC unique-index locks: a second session blocks on an uncommitted handle insert, then fails with `23505` after commit
+- Testcontainers so each backend runs its suite in CI against a real instance
 ## Usage
 
 ```ts
