@@ -40,3 +40,18 @@ export type {
   PostDoc,
   UserDoc,
 } from './mongo/store'
+
+export {
+  CassandraStore,
+  InvalidQueryError,
+  MemoryCassandra,
+  TABLES,
+  toCreateCql,
+} from './cassandra/store'
+
+export type {
+  Cell,
+  Row,
+  SelectOpts,
+  TableSchema,
+} from './cassandra/store'
