@@ -55,3 +55,13 @@ export type {
   SelectOpts,
   TableSchema,
 } from './cassandra/store'
+
+export {
+  CockroachStore,
+  CRDB_HASH_STATEMENTS,
+  FEED_LAYOUT,
+  HASH_BUCKETS,
+  Keyspace,
+  SERIALIZATION_FAILURE,
+  withSerializableRetry,
+} from './cockroach/store'
