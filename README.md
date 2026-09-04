@@ -52,6 +52,12 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - posts PK is hash-sharded, then the leftover unique on `posts(id)` from `ALTER PRIMARY KEY` is dropped so inserts do not keep appending to an unhashed unique
 - Secondary-index hotspots: a global `created_at` index is sequential even when the PK is hashed, so that index is the one that gets hashed
 
+- Labeled property graph: nodes carry labels and properties; relationships are first-class directed typed edges (`FOLLOWS`, `AUTHORED`)
+- Cypher pattern matching: `MATCH (u)-[:FOLLOWS]->(a)-[:AUTHORED]->(p)` is the 2-hop feed, not a join table plus a posts scan
+- Variable-length paths and `shortestPath((a)-[:FOLLOWS*..16]->(b))` (BFS with a hop cap). A recursive CTE or N+1 neighbor lookup in the other stores
+- Friend-of-friend recommendation: 2-hop `FOLLOWS` expansion, exclude self and existing edges, rank by independent path count
+- Common neighbors and 2-cycles (`(a)-[:FOLLOWS]->(b)-[:FOLLOWS]->(a)`) as mutual follows
+- Graph uniqueness: `CREATE CONSTRAINT ... REQUIRE n.prop IS UNIQUE` (`Neo.ClientError.Schema.ConstraintValidationFailed`). `MERGE` on `FOLLOWS` is idempotent; `CREATE` on `User`/`Post` fails the unique constraint
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
@@ -86,6 +92,14 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - posts PK is hash-sharded, then the leftover unique on `posts(id)` from `ALTER PRIMARY KEY` is dropped so inserts do not keep appending to an unhashed unique
 - Secondary-index hotspots: a global `created_at` index is sequential even when the PK is hashed, so that index is the one that gets hashed
 - Distributed SQL backend (CockroachDB): same SQL, hash-sharded posts PK, ordered prefix scans, SERIALIZABLE retry
+- Labeled property graph: nodes carry labels and properties; relationships are first-class directed typed edges (`FOLLOWS`, `AUTHORED`)
+- Cypher pattern matching: `MATCH (u)-[:FOLLOWS]->(a)-[:AUTHORED]->(p)` is the 2-hop feed, not a join table plus a posts scan
+- Variable-length paths and `shortestPath((a)-[:FOLLOWS*..16]->(b))` (BFS with a hop cap). A recursive CTE or N+1 neighbor lookup in the other stores
+- Friend-of-friend recommendation: 2-hop `FOLLOWS` expansion, exclude self and existing edges, rank by independent path count
+- Common neighbors and 2-cycles (`(a)-[:FOLLOWS]->(b)-[:FOLLOWS]->(a)`) as mutual follows
+- Graph uniqueness: `CREATE CONSTRAINT ... REQUIRE n.prop IS UNIQUE` (`Neo.ClientError.Schema.ConstraintValidationFailed`). `MERGE` on `FOLLOWS` is idempotent; `CREATE` on `User`/`Post` fails the unique constraint
+- Graph backend (Neo4j): model the relationships, Cypher queries the others struggle with
+- Graph backend (Neo4j-style `MemoryGraph`): model the relationships, plus the Cypher catalog for the walks the others struggle with
 ## Usage
 
 ```ts

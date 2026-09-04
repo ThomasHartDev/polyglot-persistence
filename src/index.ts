@@ -65,3 +65,5 @@ export {
   SERIALIZATION_FAILURE,
   withSerializableRetry,
 } from './cockroach/store'
+
+export { CONSTRAINTS, CYPHER, MemoryGraph, Neo4jStore } from './neo4j/store'
