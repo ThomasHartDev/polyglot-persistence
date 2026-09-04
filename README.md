@@ -58,6 +58,10 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Friend-of-friend recommendation: 2-hop `FOLLOWS` expansion, exclude self and existing edges, rank by independent path count
 - Common neighbors and 2-cycles (`(a)-[:FOLLOWS]->(b)-[:FOLLOWS]->(a)`) as mutual follows
 - Graph uniqueness: `CREATE CONSTRAINT ... REQUIRE n.prop IS UNIQUE` (`Neo.ClientError.Schema.ConstraintValidationFailed`). `MERGE` on `FOLLOWS` is idempotent; `CREATE` on `User`/`Post` fails the unique constraint
+- Query-shape taxonomy: point lookup, clustered author range, fan-in home feed, keyset continuation, and insert
+- Microbenchmark methodology: `process.hrtime.bigint()`, discarded warmup, isolated write user so publishes do not pollute reads
+- Latency percentiles (nearest-rank p50/p95/p99), mean, ops/s, and relative p50 per shape
+
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
@@ -100,6 +104,10 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Graph uniqueness: `CREATE CONSTRAINT ... REQUIRE n.prop IS UNIQUE` (`Neo.ClientError.Schema.ConstraintValidationFailed`). `MERGE` on `FOLLOWS` is idempotent; `CREATE` on `User`/`Post` fails the unique constraint
 - Graph backend (Neo4j): model the relationships, Cypher queries the others struggle with
 - Graph backend (Neo4j-style `MemoryGraph`): model the relationships, plus the Cypher catalog for the walks the others struggle with
+- Query-shape taxonomy: point lookup, clustered author range, fan-in home feed, keyset continuation, and insert
+- Microbenchmark methodology: `process.hrtime.bigint()`, discarded warmup, isolated write user so publishes do not pollute reads
+- Latency percentiles (nearest-rank p50/p95/p99), mean, ops/s, and relative p50 per shape
+- Benchmark the domain across backends (read/write/query shapes) into a comparison table
 ## Usage
 
 ```ts

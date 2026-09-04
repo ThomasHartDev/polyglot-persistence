@@ -67,3 +67,25 @@ export {
 } from './cockroach/store'
 
 export { CONSTRAINTS, CYPHER, MemoryGraph, Neo4jStore } from './neo4j/store'
+
+export {
+  benchStore,
+  compareStores,
+  DEFAULT_SEED,
+  nearestRankPercentile,
+  QUERY_SHAPES,
+  relativeP50,
+  renderComparisonTable,
+  seedWorkload,
+  summarizeLatencies,
+  WRITER_ID,
+} from './bench'
+
+export type {
+  BenchFixture,
+  BenchOptions,
+  LatencyStats,
+  QueryShape,
+  SeedSpec,
+  ShapeRow,
+} from './bench'
