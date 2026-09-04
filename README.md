@@ -4,7 +4,7 @@ One domain, many stores: the same activity feed modeled on relational, document,
 
 ## What this demonstrates
 
-Polyglot persistence is the idea that one product rarely has one ideal database. A follow graph wants adjacency lookups, a home timeline wants a clustered time key, and a unique handle wants a relational constraint. This repo keeps one domain and one `ActivityStore` port, then implements that port on each paradigm so query shape, consistency, and scaling stay comparable. The in-memory backend is fan-in on read: per-author timelines merged into a home feed. The Postgres backend is the same port over a 3NF schema, composite B-tree indexes, and keyset SQL. Later backends (Redis, MongoDB, Cassandra, CockroachDB, Neo4j) keep the same interface and the same contract tests.
+Polyglot persistence is the idea that one product rarely has one ideal database. A follow graph wants adjacency lookups, a home timeline wants a clustered time key, and a unique handle wants a relational constraint. This repo keeps one domain and one `ActivityStore` port, then implements that port on each paradigm so query shape, consistency, and scaling stay comparable. The in-memory backend is fan-in on read: per-author timelines merged into a home feed. The Postgres backend is the same port over a 3NF schema, composite B-tree indexes, and keyset SQL. The Redis backend speaks HASH, SET, ZSET, and SET NX, plus per-key PEXPIRE. Later backends (MongoDB, Cassandra, CockroachDB, Neo4j) keep the same interface and the same contract tests.
 
 ## Concepts demonstrated
 
@@ -22,17 +22,22 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Fan-in via `CROSS JOIN LATERAL`: each followee's newest-N posts walk `posts_author_timeline_idx`, then the outer query merges
 - Table-level `CHECK` (no self-follow) and `UNIQUE` (handle) as the source of integrity
 - Query planner: after `ANALYZE`, `EXPLAIN` on the author timeline is `Index Scan using posts_author_timeline_idx` with no Sort. The lateral feed uses that same scan per followee.
+- Redis key design: `u:{id}` HASH, `h:{handle}` STRING, `p:{id}` HASH, `tl:{author}` ZSET, `fg:{id}` / `fr:{id}` SET
+- SET NX as an application uniqueness primitive; sorted-set timeline (score = `createdAt`, member = post id, equal scores reverse-lex)
+- Per-key TTL (`PEXPIRE`) versus a relational `PRIMARY KEY`: the hash can vanish, the ZSET member lingers until the next read `ZREM`s it, and the id is reusable
+- No foreign keys and no `CHECK`: self-follow and existence are enforced in the store, not the engine
 
 ## What's implemented
 
 - Project scaffold with TypeScript strict mode, Vitest, and CI
 - Activity-feed domain, `ActivityStore` port, in-memory backend, and a shared contract suite
 - Relational backend (Postgres): schema, indexes, the SQL queries for the domain
+- Key-value backend (Redis): data structures + expiry, the tradeoffs vs relational
 
 ## Usage
 
 ```ts
-import { MemoryStore } from 'polyglot-persistence'
+import { MemoryRedis, MemoryStore, RedisStore } from 'polyglot-persistence'
 
 const store = new MemoryStore()
 
@@ -47,9 +52,18 @@ const post = await store.publish(
 
 const page = await store.feed('ada', { limit: 20 })
 const next = await store.feed('ada', { limit: 20, before: post })
+
+const redis = RedisStore.attach(new MemoryRedis())
+await redis.createUser({ id: 'ada', handle: 'ada' })
+await redis.publish({ id: 'p1', authorId: 'ada', body: 'ttl demo' }, Date.now())
+await redis.expirePost('p1', 60_000)
 ```
 
-`PostgresStore` takes any `{ query(sql, params) }` client. Tests drive it with PGlite (`@electric-sql/pglite` is a devDependency, not a runtime dep). A server `pg` Pool works the same way. A new backend implements `ActivityStore` and calls `defineStoreContract(name, factory)` from `test/contract.ts`.
+`PostgresStore` takes any `{ query(sql, params) }` client. Tests drive it with PGlite (`@electric-sql/pglite` is a devDependency, not a runtime dep). A server `pg` Pool works the same way.
+
+`RedisStore` takes any `RedisCommands` client (GET/SET NX, HASH, SET, ZSET, PEXPIRE). `MemoryRedis` is an in-process engine with the same types and per-key TTL, so the contract runs without a daemon. Point the same store at a real Redis by implementing that command surface.
+
+A new backend implements `ActivityStore` and calls `defineStoreContract(name, factory)` from `test/contract.ts`.
 
 ## Running the tests
 
