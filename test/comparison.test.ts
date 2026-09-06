@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { QUERY_SHAPES } from '../src/bench'
 import {
   BACKENDS,
   chooseStore,
@@ -75,9 +77,9 @@ describe('chooseStore', () => {
     expect(chooseStore({ linearWrites: true }).ranked[0]?.backend).toBe('cassandra')
     expect(chooseStore({ txn: true, linearWrites: true }).ranked[0]?.backend).toBe('cockroach')
     expect(rejectMap({ linearWrites: true })).toMatchObject({
-      postgres: 'no durable horizontal write scale',
-      neo4j: 'no durable horizontal write scale',
-      redis: 'no durable horizontal write scale',
+      postgres: 'no horizontal write scale',
+      neo4j: 'no horizontal write scale',
+      redis: 'no durable write scale',
     })
     expect(ids(chooseStore({ linearWrites: true, inMemory: true }).ranked)).toEqual(
       expect.arrayContaining(['redis', 'cassandra', 'mongodb', 'cockroach']),
@@ -101,16 +103,35 @@ describe('chooseStore', () => {
     expect(() => chooseStore({ maxOpsCost: 0 })).toThrow(RangeError)
     expect(() => chooseStore({ maxOpsCost: 1.5 })).toThrow(RangeError)
     expect(() => chooseStore({ maxOpsCost: 6 })).toThrow(RangeError)
-    expect(chooseStore({ preferConsistency: true }).ranked[0]?.backend).toBe('postgres')
+    expect(ids(chooseStore({ preferConsistency: true }).ranked)).toEqual([
+      'cockroach',
+      'neo4j',
+      'mongodb',
+      'postgres',
+      'redis',
+      'cassandra',
+    ])
     expect(
-      scoreProfile(profileOf('postgres'), { preferConsistency: true }),
-    ).toBeGreaterThanOrEqual(
       scoreProfile(profileOf('cockroach'), { preferConsistency: true }),
-    )
+    ).toBeGreaterThan(scoreProfile(profileOf('postgres'), { preferConsistency: true }))
+    expect(
+      scoreProfile(profileOf('neo4j'), { preferConsistency: true }),
+    ).toBeGreaterThan(scoreProfile(profileOf('redis'), { preferConsistency: true }))
+    expect(
+      scoreProfile(profileOf('mongodb'), { preferConsistency: true }),
+    ).toBeGreaterThan(scoreProfile(profileOf('redis'), { preferConsistency: true }))
   })
 })
 
 describe('guide', () => {
+  it('derives guide shapes from the bench taxonomy plus hop_walk', () => {
+    expect(GUIDE_SHAPES).toEqual([...QUERY_SHAPES, 'hop_walk'])
+  })
+
+  it('embeds renderGuide() in README so tables cannot drift from the catalog', () => {
+    expect(readFileSync('README.md', 'utf8')).toContain(renderGuide())
+  })
+
   it('renders four axes, ranked picks, and an empty-choice header', () => {
     const md = renderGuide()
     for (const heading of [

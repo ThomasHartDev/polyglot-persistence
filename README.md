@@ -171,6 +171,55 @@ chooseStore({ hops: true }).ranked[0]?.backend // neo4j
 renderGuide()
 ```
 
+<!-- comparison-guide -->
+# When to use which store
+
+One activity feed. Six physical models. Filter on hard constraints first (transactions, hops, TTL, write scale), then rank what remains on integrity, native access, and ops cost.
+
+PACELC: if a partition, choose Availability or Consistency. Else choose Latency or Consistency.
+CA/EC in this catalog is the CAP name for a single primary that refuses to serve on the losing side of a partition (the PACELC PC choice) and still chooses consistency over latency when healthy (Postgres, Neo4j).
+
+## Consistency
+| backend | class | PACELC | cross-key txn | uniqueness |
+| --- | --- | --- | --- | --- |
+| postgres | read_committed | CA/EC | yes | constraint |
+| mongodb | majority_session | PC/EC | yes | unique_index |
+| redis | linearizable_per_key | CA/EL | no | setnx |
+| cassandra | tunable_quorum | PA/EL | no | lwt |
+| cockroach | serializable | PC/EC | yes | constraint |
+| neo4j | causal | CA/EC | yes | constraint |
+
+## Query shape
+| backend | feed | ad-hoc SQL | hops | TTL |
+| --- | --- | --- | --- | --- |
+| postgres | lateral_join | yes | no | no |
+| mongodb | in_filter | no | no | no |
+| redis | n_zrange | no | no | yes |
+| cassandra | n_partitions | no | no | no |
+| cockroach | lateral_join | yes | no | no |
+| neo4j | two_hop | no | yes | no |
+
+## Scaling
+| backend | horizontal | durable | unit |
+| --- | --- | --- | --- |
+| postgres | no | yes | primary + replicas |
+| mongodb | yes | yes | shard key |
+| redis | yes | no | hash slot (memory) |
+| cassandra | yes | yes | partition |
+| cockroach | yes | yes | range + hash bucket |
+| neo4j | no | yes | min-cut (hard) |
+
+## Operational cost
+| backend | cost | integrity | when |
+| --- | ---: | ---: | --- |
+| postgres | 2 | 5 | Handles must be unique, the feed is a join, and one primary is enough. |
+| mongodb | 3 | 4 | The user document is the read model and posts stay referenced under the 16 MiB cap. |
+| redis | 1 | 2 | The hot path is a HASH or ZSET and expiry is a first-class operation. |
+| cassandra | 4 | 3 | Author timelines scale by partition and every query is named up front. |
+| cockroach | 5 | 5 | SQL uniqueness and SERIALIZABLE have to hold across ranges. |
+| neo4j | 4 | 5 | The question is a walk (shortest path, friend-of-friend), not a table scan. |
+<!-- /comparison-guide -->
+
 ## Running the tests
 
 ```sh

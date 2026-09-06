@@ -1,3 +1,5 @@
+import { QUERY_SHAPES } from './bench'
+
 export const BACKENDS = [
   'postgres',
   'mongodb',
@@ -9,14 +11,7 @@ export const BACKENDS = [
 
 export type BackendId = (typeof BACKENDS)[number]
 
-export const GUIDE_SHAPES = [
-  'point_get',
-  'author_timeline',
-  'home_feed',
-  'keyset_page',
-  'publish',
-  'hop_walk',
-] as const
+export const GUIDE_SHAPES = [...QUERY_SHAPES, 'hop_walk'] as const
 
 export type GuideShape = (typeof GUIDE_SHAPES)[number]
 export type Pacelc = 'CA/EC' | 'CA/EL' | 'PA/EL' | 'PC/EC'
@@ -129,7 +124,7 @@ export function scoreProfile(profile: BackendProfile, need: StoreNeed = {}): num
   const query = need.query ?? 'home_feed'
   let score = profile.integrity + (6 - profile.opsCost)
   if (profile.query.native.includes(query)) score += 4
-  if (need.preferConsistency) score += RANK[profile.consistency.class]
+  if (need.preferConsistency) score += consistencyScore(profile) * 10
   if (need.linearWrites && profile.scale.horizontal) score += 3
   if (need.linearWrites && isFeed(query) && profile.paradigm === 'wide_column') score += 3
   if (need.linearWrites && profile.paradigm === 'distributed_sql' && !need.adHocSql && !need.txn) {
@@ -148,6 +143,7 @@ export function renderGuide(): string {
     'One activity feed. Six physical models. Filter on hard constraints first (transactions, hops, TTL, write scale), then rank what remains on integrity, native access, and ops cost.',
     '',
     'PACELC: if a partition, choose Availability or Consistency. Else choose Latency or Consistency.',
+    'CA/EC in this catalog is the CAP name for a single primary that refuses to serve on the losing side of a partition (the PACELC PC choice) and still chooses consistency over latency when healthy (Postgres, Neo4j).',
     '',
     '## Consistency',
     md(
@@ -268,7 +264,8 @@ function rejectReason(profile: BackendProfile, need: StoreNeed): string | null {
   }
   if (need.linearWrites) {
     const durable = profile.scale.durable || need.inMemory === true
-    if (!(profile.scale.horizontal && durable)) return 'no durable horizontal write scale'
+    if (!profile.scale.horizontal) return 'no horizontal write scale'
+    if (!durable) return 'no durable write scale'
   }
   if (need.maxOpsCost !== undefined && profile.opsCost > need.maxOpsCost) {
     return 'ops cost exceeds ceiling'
@@ -286,6 +283,13 @@ function becauseOf(profile: BackendProfile, need: StoreNeed): string[] {
   if (need.linearWrites) reasons.push(`scale ${profile.scale.unit}`)
   reasons.push(`integrity ${profile.integrity}`, `ops ${profile.opsCost}`)
   return reasons
+}
+
+function consistencyScore(profile: BackendProfile): number {
+  const isolation = RANK[profile.consistency.class]
+  // WHY: per-key linearizability without durability is not a stronger store-wide class
+  if (profile.consistency.crossKeyTxn && profile.scale.durable) return isolation + 8
+  return isolation
 }
 
 function compareRank(a: RankedPick, b: RankedPick): number {
