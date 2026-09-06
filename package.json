@@ -1,6 +1,6 @@
 {
   "name": "polyglot-persistence",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "One domain modeled across relational, document, key-value, wide-column, distributed SQL, and graph stores. A reference for when to reach for which database.",
   "type": "module",
   "license": "MIT",

@@ -1,4 +1,4 @@
-export const VERSION = '0.3.0'
+export const VERSION = '0.4.0'
 
 export { BODY_MAX, StoreError } from './domain'
 
@@ -89,3 +89,15 @@ export type {
   SeedSpec,
   ShapeRow,
 } from './bench'
+
+export {
+  BACKENDS,
+  chooseStore,
+  GUIDE_SHAPES,
+  PROFILES,
+  profileOf,
+  renderChoice,
+  renderGuide,
+  scoreProfile,
+} from './comparison'
+export type { BackendId, BackendProfile, Choice, GuideShape, StoreNeed } from './comparison'

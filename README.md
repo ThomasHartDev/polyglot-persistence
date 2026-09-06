@@ -61,6 +61,12 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Query-shape taxonomy: point lookup, clustered author range, fan-in home feed, keyset continuation, and insert
 - Microbenchmark methodology: `process.hrtime.bigint()`, discarded warmup, isolated write user so publishes do not pollute reads
 - Latency percentiles (nearest-rank p50/p95/p99), mean, ops/s, and relative p50 per shape
+- PACELC: if partitioned, Availability vs Consistency; else Latency vs Consistency
+- Consistency classes: read committed, SERIALIZABLE, linearizable per key, tunable quorum, majority session, causal
+- Query-shape affinity: lateral join, `$in`, N ZRANGE merge, N partition reads, 2-hop Cypher
+- Horizontal write scale: primary+replicas, shard key, hash slot, partition, range+hash bucket, graph min-cut
+- Operational cost as a 1-5 rank (single process vs replica set vs ring vs leaseholders)
+- Elimination-by-aspect then weighted scoring over a tradeoff matrix
 
 - Query planner: after `ANALYZE`, `EXPLAIN` on the author timeline is an index-ordered scan of `posts_author_timeline_idx` with no Sort. The lateral feed uses that same scan per followee.
 - Testcontainers: ephemeral Docker engines as test fixtures, same suite locally and in CI
@@ -123,6 +129,7 @@ Polyglot persistence is the idea that one product rarely has one ideal database.
 - Shared fixture plus `TRUNCATE CASCADE` isolation (amortize boot, empty catalog per case)
 - MVCC unique-index locks: a second session blocks on an uncommitted handle insert, then fails with `23505` after commit
 - Testcontainers so each backend runs its suite in CI against a real instance
+- When-to-use-which guide: consistency (PACELC), query shape, write scale, and operational cost, with a constraint-then-score chooser
 ## Usage
 
 ```ts
@@ -153,6 +160,16 @@ await redis.expirePost('p1', 60_000)
 `RedisStore` takes any `RedisCommands` client (GET/SET NX, HASH, SET, ZSET, PEXPIRE). `MemoryRedis` is an in-process engine with the same types and per-key TTL, so the contract runs without a daemon. Point the same store at a real Redis by implementing that command surface.
 
 A new backend implements `ActivityStore` and calls `defineStoreContract(name, factory)` from `test/contract.ts`.
+
+`chooseStore` filters the six engines on hard constraints, then ranks survivors on integrity, native access, and ops cost. `renderGuide()` is the written table for consistency, query shape, scaling, and operational cost.
+
+```ts
+import { chooseStore, renderGuide } from 'polyglot-persistence'
+
+chooseStore({ txn: true, adHocSql: true, linearWrites: true }).ranked[0]?.backend // cockroach
+chooseStore({ hops: true }).ranked[0]?.backend // neo4j
+renderGuide()
+```
 
 ## Running the tests
 
